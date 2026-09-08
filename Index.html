@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+  <style>
+    #calendar { max-width: 1100px; margin: 0 auto; }
+    .fc-event { cursor: pointer; }
+    .fc-daygrid-day { cursor: pointer; transition: background-color 0.2s; }
+    .fc-daygrid-day:hover { background-color: #f3f4f6; }
+  </style>
+</head>
+<body class="bg-gray-50 p-6">
+
+  <div class="max-w-7xl mx-auto space-y-6">
+    <div class="bg-white p-5 rounded-xl shadow-sm flex flex-wrap justify-between items-center gap-4">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-800">🏛️ 부서 공문 스케줄러</h1>
+        <p class="text-sm text-gray-500">구글 캘린더 연동 및 AI 자동 요약 시스템</p>
+      </div>
+
+      <!-- 상단 컨트롤 패널 (계층형 필터 및 등록 버튼) -->
+      <div class="flex items-center gap-3 flex-wrap">
+        <div class="flex items-center gap-1 border p-1 rounded-lg bg-gray-50">
+          <select id="filterDept" onchange="onDeptChange()" class="p-1 text-sm bg-transparent outline-none w-28"></select>
+          <button onclick="manageSetting('dept', 'add')" class="text-blue-600 hover:bg-blue-100 px-2 rounded font-bold" title="부서명 추가">+</button>
+          <button onclick="manageSetting('dept', 'delete')" class="text-red-600 hover:bg-red-100 px-2 rounded font-bold" title="부서명 삭제">-</button>
+        </div>
+
+        <div class="flex items-center gap-1 border p-1 rounded-lg bg-gray-50">
+          <select id="filterSubDept" onchange="onSubDeptChange()" class="p-1 text-sm bg-transparent outline-none w-28">
+            <option value="">전체 부</option>
+          </select>
+          <button onclick="manageSetting('subDept', 'add')" class="text-blue-600 hover:bg-blue-100 px-2 rounded font-bold" title="부명 추가">+</button>
+          <button onclick="manageSetting('subDept', 'delete')" class="text-red-600 hover:bg-red-100 px-2 rounded font-bold" title="부명 삭제">-</button>
+        </div>
+
+        <div class="flex items-center gap-1 border p-1 rounded-lg bg-gray-50">
+          <select id="filterManager" onchange="loadEvents()" class="p-1 text-sm bg-transparent outline-none w-28">
+            <option value="">전체 담당자</option>
+          </select>
+          <button onclick="manageSetting('manager', 'add')" class="text-blue-600 hover:bg-blue-100 px-2 rounded font-bold" title="담당자 추가">+</button>
+          <button onclick="manageSetting('manager', 'delete')" class="text-red-600 hover:bg-red-100 px-2 rounded font-bold" title="담당자 삭제">-</button>
+        </div>
+
+        <div class="flex gap-2">
+          <button onclick="openManualModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition shadow-sm">
+            ✏️ 수기 일정 등록
+          </button>
+          <button onclick="openUploadModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition shadow-sm">
+            📄 공문 AI 등록
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white p-6 rounded-xl shadow-sm">
+      <div id="calendar"></div>
+    </div>
+  </div>
+
+  <!-- 색상 선택 옵션 공통 템플릿 HTML 조각 -->
+  <!-- colorId 매핑: 9=블루베리(기본), 1=라벤더, 2=세이지, 3=포도, 4=플라밍고, 5=바나나, 6=탠저린, 7=피콕, 8=그래파이트, 10=바질, 11=토마토 -->
+
+  <!-- 공문 AI 등록 모달 -->
+  <div id="uploadModal" class="hidden fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+      <h3 class="text-lg font-bold text-gray-800 border-b pb-2">공문서 AI 자동등록 (본문 일시 분석)</h3>
+      
+      <form id="uploadForm" onsubmit="submitUploadForm(event)" class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">부서명</label>
+          <select name="dept" id="modalDept" required onchange="updateModalSubDepts('modal')" class="w-full border p-2 rounded-md text-sm bg-gray-50">
+            <option value="">부서명 선택</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">부명</label>
+          <select name="subDept" id="modalSubDept" required onchange="updateModalManagers('modal')" class="w-full border p-2 rounded-md text-sm bg-gray-50">
+            <option value="">부 선택</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">담당자명</label>
+          <select name="manager" id="modalManager" required class="w-full border p-2 rounded-md text-sm bg-gray-50">
+            <option value="">담당자 선택</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">일정 색상</label>
+          <select name="color" class="w-full border p-2 rounded-md text-sm bg-gray-50">
+            <option value="9" selected>🔵 블루베리 (기본)</option>
+            <option value="1">🟣 라벤더</option>
+            <option value="2">🟢 세이지</option>
+            <option value="3">🍇 포도</option>
+            <option value="4">🦩 플라밍고</option>
+            <option value="5">🟡 바나나</option>
+            <option value="6">🟠 탠저린</option>
+            <option value="7">🔷 피콕</option>
+            <option value="8">⚫ 그래파이트</option>
+            <option value="10">🌿 바질</option>
+            <option value="11">🔴 토마토</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">공문서 첨부 (PDF 또는 이미지)</label>
+          <input type="file" id="fileInput" required accept="application/pdf,image/*" class="w-full text-sm p-2 border rounded-md">
+        </div>
+
+        <div class="flex justify-end gap-2 pt-4">
+          <button type="button" onclick="closeUploadModal()" class="px-4 py-2 border rounded-md text-sm hover:bg-gray-100">취소</button>
+          <button type="submit" id="submitUploadBtn" class="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 shadow-md">AI 분석 및 저장</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 수기 일정 등록 모달 -->
+  <div id="manualModal" class="hidden fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+      <h3 class="text-lg font-bold text-gray-800 border-b pb-2">✏️ 수기 일정 직접 등록</h3>
+      
+      <form id="manualForm" onsubmit="submitManualForm(event)" class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">부서명</label>
+          <select name="dept" id="manualDept" required onchange="updateModalSubDepts('manual')" class="w-full border p-2 rounded-md text-sm bg-gray-50">
+            <option value="">부서명 선택</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">부명</label>
+          <select name="subDept" id="manualSubDept" required onchange="updateModalManagers('manual')" class="w-full border p-2 rounded-md text-sm bg-gray-50">
+            <option value="">부 선택</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">담당자명</label>
+          <select name="manager" id="manualManager" required class="w-full border p-2 rounded-md text-sm bg-gray-50">
+            <option value="">담당자 선택</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">일정 제목</label>
+          <input type="text" id="manualTitle" name="title" required placeholder="예: 직원 직무 교육" class="w-full border p-2 rounded-md text-sm bg-gray-50 font-semibold">
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">시작일</label>
+            <input type="date" id="manualStartDate" name="startDate" required class="w-full border p-2 rounded-md text-sm bg-gray-50">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">종료(마감)일</label>
+            <input type="date" id="manualEndDate" name="endDate" required class="w-full border p-2 rounded-md text-sm bg-gray-50">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">일정 색상</label>
+          <select name="color" id="manualColor" class="w-full border p-2 rounded-md text-sm bg-gray-50">
+            <option value="9" selected>🔵 블루베리 (기본)</option>
+            <option value="1">🟣 라벤더</option>
+            <option value="2">🟢 세이지</option>
+            <option value="3">🍇 포도</option>
+            <option value="4">🦩 플라밍고</option>
+            <option value="5">🟡 바나나</option>
+            <option value="6">🟠 탠저린</option>
+            <option value="7">🔷 피콕</option>
+            <option value="8">⚫ 그래파이트</option>
+            <option value="10">🌿 바질</option>
+            <option value="11">🔴 토마토</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">상세 내용</label>
+          <textarea id="manualSummary" name="summary" rows="3" placeholder="일정 관련 세부사항 입력..." class="w-full border p-2 rounded-md text-sm bg-gray-50"></textarea>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-4">
+          <button type="button" onclick="closeManualModal()" class="px-4 py-2 border rounded-md text-sm hover:bg-gray-100">취소</button>
+          <button type="submit" id="submitManualBtn" class="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm hover:bg-emerald-700 shadow-md">일정 등록</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 일정 상세 / 수정 / 삭제 모달 -->
+  <div id="eventModal" class="hidden fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+      <h3 class="text-lg font-bold text-gray-800 border-b pb-2">일정 상세 관리</h3>
+      
+      <input type="hidden" id="editEventId" value="">
+
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">일정 제목</label>
+        <input type="text" id="editTitle" class="w-full border p-2 rounded-md text-sm bg-gray-50 font-semibold">
+      </div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">시작일</label>
+          <input type="date" id="editStartDate" class="w-full border p-2 rounded-md text-sm bg-gray-50">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">마감일</label>
+          <input type="date" id="editEndDate" class="w-full border p-2 rounded-md text-sm bg-gray-50">
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">일정 색상</label>
+        <select id="editColor" class="w-full border p-2 rounded-md text-sm bg-gray-50">
+          <option value="9">🔵 블루베리 (기본)</option>
+          <option value="1">🟣 라벤더</option>
+          <option value="2">🟢 세이지</option>
+          <option value="3">🍇 포도</option>
+          <option value="4">🦩 플라밍고</option>
+          <option value="5">🟡 바나나</option>
+          <option value="6">🟠 탠저린</option>
+          <option value="7">🔷 피콕</option>
+          <option value="8">⚫ 그래파이트</option>
+          <option value="10">🌿 바질</option>
+          <option value="11">🔴 토마토</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">상세 내용 및 요약</label>
+        <textarea id="editDescription" rows="4" class="w-full border p-2 rounded-md text-sm bg-gray-50"></textarea>
+      </div>
+
+      <div class="flex justify-between items-center pt-4 border-t">
+        <button type="button" onclick="deleteEventAction()" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium shadow-sm">🗑️ 삭제</button>
+        <div class="flex gap-2">
+          <button type="button" onclick="closeEventModal()" class="px-4 py-2 border rounded-md text-sm hover:bg-gray-100">닫기</button>
+          <button type="button" onclick="updateEventAction()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium shadow-sm">💾 수정 저장</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let calendar;
+    let orgData = {};
+
+    document.addEventListener('DOMContentLoaded', function() {
+      loadSettings();
+
+      const calendarEl = document.getElementById('calendar');
+      calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        locale: 'ko',
+        headerToolbar: {
+          left: 'prev,next today',
+          center: 'title',
+          right: 'dayGridMonth,timeGridWeek'
+        },
+        eventClick: function(info) {
+          document.getElementById('editEventId').value = info.event.id;
+          document.getElementById('editTitle').value = info.event.title;
+          document.getElementById('editStartDate').value = info.event.startStr;
+          
+          if (info.event.endStr) {
+            let endDt = new Date(info.event.endStr);
+            endDt.setDate(endDt.getDate() - 1);
+            let y = endDt.getFullYear();
+            let m = String(endDt.getMonth() + 1).padStart(2, '0');
+            let d = String(endDt.getDate()).padStart(2, '0');
+            document.getElementById('editEndDate').value = `${y}-${m}-${d}`;
+          } else {
+            document.getElementById('editEndDate').value = info.event.startStr;
+          }
+
+          document.getElementById('editColor').value = info.event.extendedProps.colorId || "9";
+          document.getElementById('editDescription').value = info.event.extendedProps.description || "";
+          document.getElementById('eventModal').classList.remove('hidden');
+        },
+        dateClick: function(info) {
+          // 달력 날짜 클릭 시 수기 등록 모달을 열고 해당 날짜를 기본 세팅
+          document.getElementById('manualStartDate').value = info.dateStr;
+          document.getElementById('manualEndDate').value = info.dateStr;
+          openManualModal();
+        }
+      });
+      calendar.render();
+    });
+
+    function loadSettings() {
+      google.script.run
+        .withSuccessHandler(function(data) {
+          orgData = data;
+          renderFilterDepts();
+          renderModalDepts('modal');
+          renderModalDepts('manual');
+          loadEvents();
+        })
+        .withFailureHandler(function(err) {
+          alert("조직도 정보를 불러오지 못했습니다: " + err.message);
+        })
+        .getSettings();
+    }
+
+    function renderFilterDepts() {
+      const deptKeys = Object.keys(orgData);
+      const el = document.getElementById('filterDept');
+      const current = el.value;
+
+      let html = '<option value="">전체 부서명</option>';
+      deptKeys.forEach(d => { html += `<option value="${d}">${d}</option>`; });
+      el.innerHTML = html;
+      if (deptKeys.includes(current)) el.value = current;
+
+      updateFilterSubDepts();
+    }
+
+    function onDeptChange() {
+      updateFilterSubDepts();
+      loadEvents();
+    }
+
+    function updateFilterSubDepts() {
+      const dept = document.getElementById('filterDept').value;
+      const el = document.getElementById('filterSubDept');
+      const current = el.value;
+
+      let subKeys = [];
+      if (dept && orgData[dept]) {
+        subKeys = Object.keys(orgData[dept]);
+      }
+
+      let html = '<option value="">전체 부</option>';
+      subKeys.forEach(s => { html += `<option value="${s}">${s}</option>`; });
+      el.innerHTML = html;
+      if (subKeys.includes(current)) el.value = current;
+
+      updateFilterManagers();
+    }
+
+    function onSubDeptChange() {
+      updateFilterManagers();
+      loadEvents();
+    }
+
+    function updateFilterManagers() {
+      const dept = document.getElementById('filterDept').value;
+      const subDept = document.getElementById('filterSubDept').value;
+      const el = document.getElementById('filterManager');
+      const current = el.value;
+
+      let managers = [];
+      if (dept && subDept && orgData[dept] && orgData[dept][subDept]) {
+        managers = orgData[dept][subDept];
+      }
+
+      let html = '<option value="">전체 담당자</option>';
+      managers.forEach(m => { html += `<option value="${m}">${m}</option>`; });
+      el.innerHTML = html;
+      if (managers.includes(current)) el.value = current;
+    }
+
+    function renderModalDepts(prefix) {
+      const deptKeys = Object.keys(orgData);
+      const el = document.getElementById(prefix + 'Dept');
+      if (!el) return;
+      const current = el.value;
+
+      let html = '<option value="">부서명 선택</option>';
+      deptKeys.forEach(d => { html += `<option value="${d}">${d}</option>`; });
+      el.innerHTML = html;
+      if (deptKeys.includes(current)) el.value = current;
+
+      updateModalSubDepts(prefix);
+    }
+
+    function updateModalSubDepts(prefix) {
+      const dept = document.getElementById(prefix + 'Dept').value;
+      const el = document.getElementById(prefix + 'SubDept');
+      if (!el) return;
+      const current = el.value;
+
+      let subKeys = [];
+      if (dept && orgData[dept]) {
+        subKeys = Object.keys(orgData[dept]);
+      }
+
+      let html = '<option value="">부 선택</option>';
+      subKeys.forEach(s => { html += `<option value="${s}">${s}</option>`; });
+      el.innerHTML = html;
+      if (subKeys.includes(current)) el.value = current;
+
+      updateModalManagers(prefix);
+    }
+
+    function updateModalManagers(prefix) {
+      const dept = document.getElementById(prefix + 'Dept').value;
+      const subDept = document.getElementById(prefix + 'SubDept').value;
+      const el = document.getElementById(prefix + 'Manager');
+      if (!el) return;
+      const current = el.value;
+
+      let managers = [];
+      if (dept && subDept && orgData[dept] && orgData[dept][subDept]) {
+        managers = orgData[dept][subDept];
+      }
+
+      let html = '<option value="">담당자 선택</option>';
+      managers.forEach(m => { html += `<option value="${m}">${m}</option>`; });
+      el.innerHTML = html;
+      if (managers.includes(current)) el.value = current;
+    }
+
+    function manageSetting(level, action) {
+      const dept = document.getElementById('filterDept').value;
+      const subDept = document.getElementById('filterSubDept').value;
+      const manager = document.getElementById('filterManager').value;
+
+      let typeName = level === 'dept' ? '부서명' : (level === 'subDept' ? '부명' : '담당자명');
+
+      if (action === 'delete') {
+        let targetVal = level === 'dept' ? dept : (level === 'subDept' ? subDept : manager);
+        if (!targetVal) return alert(`삭제할 ${typeName}을 먼저 선택해주세요.`);
+        if (!confirm(`정말 "${targetVal}" 항목을 삭제하시겠습니까?`)) return;
+
+        google.script.run
+          .withSuccessHandler(function(updatedData) {
+            orgData = updatedData;
+            renderFilterDepts();
+            renderModalDepts('modal');
+            renderModalDepts('manual');
+            loadEvents();
+            alert('삭제되었습니다.');
+          })
+          .withFailureHandler(function(err) {
+            alert("삭제 실패: " + err.message);
+          })
+          .updateSetting(level, dept, subDept, action, targetVal);
+
+      } else if (action === 'add') {
+        if (level === 'subDept' && !dept) return alert("상위 부서명을 먼저 선택해주세요.");
+        if (level === 'manager' && (!dept || !subDept)) return alert("상위 부서명과 부명을 먼저 선택해주세요.");
+
+        let value = prompt(`새로운 ${typeName}을 입력하세요:`);
+        if (!value) return;
+
+        google.script.run
+          .withSuccessHandler(function(updatedData) {
+            orgData = updatedData;
+            renderFilterDepts();
+            renderModalDepts('modal');
+            renderModalDepts('manual');
+            loadEvents();
+            alert('추가되었습니다.');
+          })
+          .withFailureHandler(function(err) {
+            alert("추가 실패: " + err.message);
+          })
+          .updateSetting(level, dept, subDept, action, value);
+      }
+    }
+
+    function loadEvents() {
+      const dept = document.getElementById('filterDept').value;
+      const subDept = document.getElementById('filterSubDept').value;
+      const manager = document.getElementById('filterManager').value;
+
+      google.script.run
+        .withSuccessHandler(function(events) {
+          calendar.removeAllEvents();
+          calendar.addEventSource(events);
+        })
+        .withFailureHandler(function(err) {
+          console.error("이벤트 조회 실패: " + err.message);
+        })
+        .getCalendarEvents(dept, subDept, manager);
+    }
+
+    function openUploadModal() { document.getElementById('uploadModal').classList.remove('hidden'); }
+    function closeUploadModal() { 
+      document.getElementById('uploadModal').classList.add('hidden'); 
+      document.getElementById('uploadForm').reset();
+      renderModalDepts('modal');
+    }
+
+    function openManualModal() { document.getElementById('manualModal').classList.remove('hidden'); }
+    function closeManualModal() {
+      document.getElementById('manualModal').classList.add('hidden');
+      document.getElementById('manualForm').reset();
+      renderModalDepts('manual');
+    }
+
+    function closeEventModal() { document.getElementById('eventModal').classList.add('hidden'); }
+
+    function updateEventAction() {
+      const eventId = document.getElementById('editEventId').value;
+      const newTitle = document.getElementById('editTitle').value;
+      const newStartDate = document.getElementById('editStartDate').value;
+      const newEndDate = document.getElementById('editEndDate').value;
+      const newColor = document.getElementById('editColor').value;
+      const newDescription = document.getElementById('editDescription').value;
+
+      if (!newTitle || !newStartDate || !newEndDate) {
+        alert("제목과 날짜를 올바르게 입력해주세요.");
+        return;
+      }
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          alert(res.message);
+          closeEventModal();
+          loadEvents();
+        })
+        .withFailureHandler(function(err) {
+          alert("수정 실패: " + err.message);
+        })
+        .updateCalendarEvent(eventId, newTitle, newDescription, newStartDate, newEndDate, newColor);
+    }
+
+    function deleteEventAction() {
+      const eventId = document.getElementById('editEventId').value;
+      if (!confirm("정말 이 일정을 캘린더에서 삭제하시겠습니까?")) return;
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          alert(res.message);
+          closeEventModal();
+          loadEvents();
+        })
+        .withFailureHandler(function(err) {
+          alert("삭제 실패: " + err.message);
+        })
+        .deleteCalendarEvent(eventId);
+    }
+
+    function submitUploadForm(e) {
+      e.preventDefault();
+      const btn = document.getElementById('submitUploadBtn');
+      const fileInput = document.getElementById('fileInput');
+
+      if (fileInput.files.length === 0) {
+        alert("공문서 파일을 선택해주세요.");
+        return;
+      }
+
+      btn.innerText = "AI 본문 분석 및 등록 중...";
+      btn.disabled = true;
+
+      const form = document.getElementById('uploadForm');
+      const file = fileInput.files[0];
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const base64Data = event.target.result.split(',')[1];
+        
+        const formData = {
+          dept: form.dept.value,
+          subDept: form.subDept.value,
+          manager: form.manager.value,
+          color: form.color.value,
+          fileName: file.name,
+          mimeType: file.type,
+          fileData: base64Data
+        };
+
+        google.script.run
+          .withSuccessHandler(function(res) {
+            btn.innerText = "AI 분석 및 저장";
+            btn.disabled = false;
+            if (res.success) {
+              alert(res.message);
+              closeUploadModal();
+              loadEvents();
+            } else {
+              alert("오류 발생: " + res.message);
+            }
+          })
+          .withFailureHandler(function(err) {
+            btn.innerText = "AI 분석 및 저장";
+            btn.disabled = false;
+            alert("공문 등록 중 오류가 발생했습니다: " + err.message);
+          })
+          .processDocumentAndSave(formData);
+      };
+
+      reader.readAsDataURL(file);
+    }
+
+    function submitManualForm(e) {
+      e.preventDefault();
+      const btn = document.getElementById('submitManualBtn');
+      const form = document.getElementById('manualForm');
+
+      btn.innerText = "등록 중...";
+      btn.disabled = true;
+
+      const formData = {
+        dept: form.dept.value,
+        subDept: form.subDept.value,
+        manager: form.manager.value,
+        title: form.title.value,
+        startDate: form.startDate.value,
+        endDate: form.endDate.value,
+        color: form.color.value,
+        summary: form.summary.value
+      };
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          btn.innerText = "일정 등록";
+          btn.disabled = false;
+          if (res.success) {
+            alert(res.message);
+            closeManualModal();
+            loadEvents();
+          } else {
+            alert("오류 발생: " + res.message);
+          }
+        })
+        .withFailureHandler(function(err) {
+          btn.innerText = "일정 등록";
+          btn.disabled = false;
+          alert("수기 일정 등록 중 오류가 발생했습니다: " + err.message);
+        })
+        .createManualEvent(formData);
+    }
+  </script>
+</body>
+</html>
