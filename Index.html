@@ -60,9 +60,6 @@
     </div>
   </div>
 
-  <!-- 색상 선택 옵션 공통 템플릿 HTML 조각 -->
-  <!-- colorId 매핑: 9=블루베리(기본), 1=라벤더, 2=세이지, 3=포도, 4=플라밍고, 5=바나나, 6=탠저린, 7=피콕, 8=그래파이트, 10=바질, 11=토마토 -->
-
   <!-- 공문 AI 등록 모달 -->
   <div id="uploadModal" class="hidden fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
@@ -239,8 +236,24 @@
   </div>
 
   <script>
+    // 🔥 여기에 구글 앱스 스크립트 '웹 앱' 배포 URL을 입력하세요.
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbz6henJelxMAf0KHSB3HJGWjy2epKphzBdg9qfSBm5tbZcClq_4Ip3nzjaxbTV0anE/exec";
+
     let calendar;
     let orgData = {};
+
+    // 공통 API 통신 함수
+    function callApi(action, payload = {}) {
+      return fetch(GAS_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action, ...payload })
+      })
+      .then(res => res.json())
+      .then(res => {
+        if (!res.success) throw new Error(res.message || "서버 처리 중 오류가 발생했습니다.");
+        return res.data;
+      });
+    }
 
     document.addEventListener('DOMContentLoaded', function() {
       loadSettings();
@@ -275,7 +288,6 @@
           document.getElementById('eventModal').classList.remove('hidden');
         },
         dateClick: function(info) {
-          // 달력 날짜 클릭 시 수기 등록 모달을 열고 해당 날짜를 기본 세팅
           document.getElementById('manualStartDate').value = info.dateStr;
           document.getElementById('manualEndDate').value = info.dateStr;
           openManualModal();
@@ -285,18 +297,17 @@
     });
 
     function loadSettings() {
-      google.script.run
-        .withSuccessHandler(function(data) {
+      callApi('getSettings')
+        .then(data => {
           orgData = data;
           renderFilterDepts();
           renderModalDepts('modal');
           renderModalDepts('manual');
           loadEvents();
         })
-        .withFailureHandler(function(err) {
+        .catch(err => {
           alert("조직도 정보를 불러오지 못했습니다: " + err.message);
-        })
-        .getSettings();
+        });
     }
 
     function renderFilterDepts() {
@@ -420,8 +431,8 @@
         if (!targetVal) return alert(`삭제할 ${typeName}을 먼저 선택해주세요.`);
         if (!confirm(`정말 "${targetVal}" 항목을 삭제하시겠습니까?`)) return;
 
-        google.script.run
-          .withSuccessHandler(function(updatedData) {
+        callApi('updateSetting', { targetLevel: level, dept, subDept, settingAction: action, value: targetVal })
+          .then(updatedData => {
             orgData = updatedData;
             renderFilterDepts();
             renderModalDepts('modal');
@@ -429,10 +440,7 @@
             loadEvents();
             alert('삭제되었습니다.');
           })
-          .withFailureHandler(function(err) {
-            alert("삭제 실패: " + err.message);
-          })
-          .updateSetting(level, dept, subDept, action, targetVal);
+          .catch(err => alert("삭제 실패: " + err.message));
 
       } else if (action === 'add') {
         if (level === 'subDept' && !dept) return alert("상위 부서명을 먼저 선택해주세요.");
@@ -441,8 +449,8 @@
         let value = prompt(`새로운 ${typeName}을 입력하세요:`);
         if (!value) return;
 
-        google.script.run
-          .withSuccessHandler(function(updatedData) {
+        callApi('updateSetting', { targetLevel: level, dept, subDept, settingAction: action, value: value })
+          .then(updatedData => {
             orgData = updatedData;
             renderFilterDepts();
             renderModalDepts('modal');
@@ -450,10 +458,7 @@
             loadEvents();
             alert('추가되었습니다.');
           })
-          .withFailureHandler(function(err) {
-            alert("추가 실패: " + err.message);
-          })
-          .updateSetting(level, dept, subDept, action, value);
+          .catch(err => alert("추가 실패: " + err.message));
       }
     }
 
@@ -462,15 +467,12 @@
       const subDept = document.getElementById('filterSubDept').value;
       const manager = document.getElementById('filterManager').value;
 
-      google.script.run
-        .withSuccessHandler(function(events) {
+      callApi('getCalendarEvents', { filterDept: dept, filterSubDept: subDept, filterManager: manager })
+        .then(events => {
           calendar.removeAllEvents();
           calendar.addEventSource(events);
         })
-        .withFailureHandler(function(err) {
-          console.error("이벤트 조회 실패: " + err.message);
-        })
-        .getCalendarEvents(dept, subDept, manager);
+        .catch(err => console.error("이벤트 조회 실패: " + err.message));
     }
 
     function openUploadModal() { document.getElementById('uploadModal').classList.remove('hidden'); }
@@ -502,32 +504,26 @@
         return;
       }
 
-      google.script.run
-        .withSuccessHandler(function(res) {
-          alert(res.message);
+      callApi('updateCalendarEvent', { eventId, newTitle, newDescription, newStartDate, newEndDate, newColor })
+        .then(res => {
+          alert("일정이 성공적으로 수정되었습니다.");
           closeEventModal();
           loadEvents();
         })
-        .withFailureHandler(function(err) {
-          alert("수정 실패: " + err.message);
-        })
-        .updateCalendarEvent(eventId, newTitle, newDescription, newStartDate, newEndDate, newColor);
+        .catch(err => alert("수정 실패: " + err.message));
     }
 
     function deleteEventAction() {
       const eventId = document.getElementById('editEventId').value;
       if (!confirm("정말 이 일정을 캘린더에서 삭제하시겠습니까?")) return;
 
-      google.script.run
-        .withSuccessHandler(function(res) {
-          alert(res.message);
+      callApi('deleteCalendarEvent', { eventId })
+        .then(res => {
+          alert("일정이 성공적으로 삭제되었습니다.");
           closeEventModal();
           loadEvents();
         })
-        .withFailureHandler(function(err) {
-          alert("삭제 실패: " + err.message);
-        })
-        .deleteCalendarEvent(eventId);
+        .catch(err => alert("삭제 실패: " + err.message));
     }
 
     function submitUploadForm(e) {
@@ -560,24 +556,19 @@
           fileData: base64Data
         };
 
-        google.script.run
-          .withSuccessHandler(function(res) {
+        callApi('processDocumentAndSave', { fileForm: formData })
+          .then(res => {
             btn.innerText = "AI 분석 및 저장";
             btn.disabled = false;
-            if (res.success) {
-              alert(res.message);
-              closeUploadModal();
-              loadEvents();
-            } else {
-              alert("오류 발생: " + res.message);
-            }
+            alert("공문 분석 및 캘린더 등록이 완료되었습니다.");
+            closeUploadModal();
+            loadEvents();
           })
-          .withFailureHandler(function(err) {
+          .catch(err => {
             btn.innerText = "AI 분석 및 저장";
             btn.disabled = false;
             alert("공문 등록 중 오류가 발생했습니다: " + err.message);
-          })
-          .processDocumentAndSave(formData);
+          });
       };
 
       reader.readAsDataURL(file);
@@ -602,24 +593,19 @@
         summary: form.summary.value
       };
 
-      google.script.run
-        .withSuccessHandler(function(res) {
+      callApi('createManualEvent', { form: formData })
+        .then(res => {
           btn.innerText = "일정 등록";
           btn.disabled = false;
-          if (res.success) {
-            alert(res.message);
-            closeManualModal();
-            loadEvents();
-          } else {
-            alert("오류 발생: " + res.message);
-          }
+          alert("수기 일정이 성공적으로 등록되었습니다.");
+          closeManualModal();
+          loadEvents();
         })
-        .withFailureHandler(function(err) {
+        .catch(err => {
           btn.innerText = "일정 등록";
           btn.disabled = false;
           alert("수기 일정 등록 중 오류가 발생했습니다: " + err.message);
-        })
-        .createManualEvent(formData);
+        });
     }
   </script>
 </body>
